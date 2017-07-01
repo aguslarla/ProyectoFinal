@@ -1,0 +1,10 @@
+<application>
+  <component name="FileTypeManager" version="17">
+    <extensionMap>
+      <mapping pattern="ClusterClient" type="PLAIN_TEXT" />
+      <mapping pattern="log" type="PLAIN_TEXT" />
+      <mapping pattern="salida" type="PLAIN_TEXT" />
+      <mapping pattern="utad_py2" type="Python" />
+    </extensionMap>
+  </component>
+</application>

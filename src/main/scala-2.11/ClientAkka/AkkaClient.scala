@@ -5,28 +5,25 @@ package AkkaClusterClient
   */
 
 import Actors.ActorClient
-import ClientAkka.EnviaMsj
-import akka.actor.{Actor, ActorLogging, ActorPath, ActorSystem, Props}
-import akka.cluster.ClusterEvent.MemberEvent
-import akka.cluster.client.{ClusterClient, ClusterClientReceptionist, ClusterClientSettings}
-import akka.protobuf.Service
-import com.typesafe.config.ConfigFactory
+import Messages.ClientQuery
+import akka.actor.{ActorSystem, Props}
 
 import scala.io.StdIn
 
 object AkkaClient  extends App{
 
-    val system = ActorSystem("DataFederationSystem", ConfigFactory.load())
+    val system = ActorSystem("DataFederationClient")
 
     val clientActor = system.actorOf(Props[ActorClient], name = "clientActor")
 
-    //clientActor ! ClusterClient.Send("/user/serviceA", "hello", localAffinity = true)
-    //clientActor ! ClusterClient.SendToAll("/user/serviceA", "hello")
+    clientActor ! "hello"
 
     var query = ""
     while (!query.contentEquals("exit")) {
       query = StdIn.readLine()
-      clientActor ! EnviaMsj(query)
+      if (!query.isEmpty){
+        clientActor ! ClientQuery(query)
+      }
     }
 
     system.terminate()

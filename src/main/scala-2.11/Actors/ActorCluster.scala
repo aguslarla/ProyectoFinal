@@ -1,5 +1,6 @@
 package Actors
 
+import Messages.{ClientQuery, ResultQuery}
 import akka.actor.{Actor, ActorLogging}
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
@@ -33,6 +34,7 @@ class ActorCluster extends Actor with ActorLogging {
   // Para comprobar si se ha creado correctamente miramos los nombres de tablas que existen
   println("Tabla " + df_csv.sqlContext.tableNames()(0) + " creada!! ")
 
+
   // subscribe to cluster changes, re-subscribe when restart
   override def preStart(): Unit = {
     cluster.subscribe(self, initialStateMode = InitialStateAsEvents,
@@ -40,21 +42,23 @@ class ActorCluster extends Actor with ActorLogging {
   }
   override def postStop(): Unit = cluster.unsubscribe(self)
 
+
   def receive = {
     case MemberUp(member) => log.info("Member is Up: {}", member.address)
     case UnreachableMember(member) => log.info("Member detected as unreachable: {}", member)
     case MemberRemoved(member, previousStatus) => log.info("Member is Removed: {} after {}", member.address, previousStatus)
-    case "hello" => println("Hello " + counter)
-                    counter+=1
+    case "hello" => println("Bienvenido nodo " + counter+1)
                     sender ! "received"
-    case "received" => println("Hi! " + counter)
-                    counter+=1
-                    sender ! "close"
     case "exit" =>  println("Hasta luego Lucas!!")
                     context.system.terminate()
-    case msg => println("Query Sql: " + msg.toString)
-                val res = spark.sql(msg.toString)
-                res.collect().foreach(t => println())
+    case ClientQuery(query) => {
+                    val res = spark.sql(query)
+                    println("Num. filas = " + res.count())
+                    res.collect().foreach(t => {
+                      sender ! ResultQuery(t.toString())
+                    })
+    }
+    case msg => println ("Mensaje " + msg + " inesperado !!" )
     case _: MemberEvent => // ignore
   }
 }

@@ -26,15 +26,14 @@ object AkkaCluster {
     // Create an AkkaActorSystem
     val system = ActorSystem.create("DataFederationSystem", config)
 
-    val seedAddress = Address("akka.tcp", "DataFederationSystem", "127.0.0.1", args(1).toInt)
-    Cluster(system).join(seedAddress)
+    /*val seedAddress = Address("akka.tcp", "DataFederationSystem", "127.0.0.1", args(1).toInt)
+    Cluster(system).join(seedAddress)*/
 
     val serviceA = system.actorOf(Props[ActorCluster], "serviceA")
     ClusterClientReceptionist(system).registerService(serviceA)
 
     while (true){
-   //   Thread.sleep(5000)
-      //actor1.tell("hello", actor1)
+      // Bucle infinito del cluster
     }
 
     system.terminate()

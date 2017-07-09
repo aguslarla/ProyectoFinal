@@ -1,0 +1,14 @@
+DONE
+1. Created Client Node.
+2. Created Cluster Node.
+3. SparkSession OK.
+4. Communication client-cluster (queries).
+5. FSM in cluster.
+
+TO-DO
+1. Create Zookeeper Session.
+2. Save metadata in zK.
+3. Run cluster in different machines.
+4. Create, Delete and Update table from queries.
+5. Video(demo) and Documentation.
+6. ...

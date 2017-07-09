@@ -1,64 +1,82 @@
 package Actors
 
-import Messages.{ClientQuery, ResultQuery}
-import akka.actor.{Actor, ActorLogging}
+import Messages._
+import akka.actor.{Actor, ActorLogging, FSM}
 import akka.cluster.Cluster
-import akka.cluster.ClusterEvent._
+import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.SparkSession
 
 /**
   * Created by agustin on 1/06/17.
   */
-class ActorCluster extends Actor with ActorLogging {
+
+// Defining STATES of actor.
+sealed trait ActorState
+case object InactiveSt extends ActorState
+case object ActiveSt extends ActorState
+case object DisconnectedSt extends ActorState
+
+// Defining DATA between state transitions.
+sealed trait DataTrans
+case object NoData extends DataTrans
+
+
+class ActorCluster extends Actor with ActorLogging with FSM[ActorState, DataTrans] {
 
   val cluster = Cluster(context.system)
 
   var counter = 0
 
+  // Inicialize ActorState
+  startWith(InactiveSt, NoData)
+
+  val config = ConfigFactory.load()
+  val masterSpark = config.getString("sparkConfig.master-url")
+  val sparkDriverHost = config.getString("sparkConfig.driver-host")
+  val zKHost = config.getString("zkConfig.host")
+
   // Creating SparkSession
   val spark = SparkSession.builder()
-                          .master("local")
-                          .appName("SparkDataFederation")
-                          .config("spark.cores.max", 1)
-                          .getOrCreate()
+    .master(masterSpark)
+    .appName("SparkDataFederation")
+    .config("spark.cores.max", 2)
+    .config("spark.driver.host", sparkDriverHost)
+    .getOrCreate()
 
-  // Leemos datasets y creamos una tabla temporal
+  // Creating Zookeeper connection
+
+  // Reading datasets and creating temp table
   //val df_parquet = spark.read.parquet("")
   val df_csv = spark.read
-                    .format("com.databricks.spark.csv")
-                    .option("header", "true")
-                    .option("mode", "DROPMALFORMED")
-                    .load("airports.csv")
+    .format("com.databricks.spark.csv")
+    .option("header", "true")
+    .option("mode", "DROPMALFORMED")
+    .load("airports.csv")
 
   df_csv.createOrReplaceTempView("airports")
-  // Para comprobar si se ha creado correctamente miramos los nombres de tablas que existen
-  println("Tabla " + df_csv.sqlContext.tableNames()(0) + " creada!! ")
+  // Reviewing database to checking new table.
+  println("Tabla " + df_csv.sqlContext.tableNames()(0).toUpperCase + " creada!! ")
 
+  when(InactiveSt) {
+    case Event(Initializing(), NoData) =>
 
-  // subscribe to cluster changes, re-subscribe when restart
-  override def preStart(): Unit = {
-    cluster.subscribe(self, initialStateMode = InitialStateAsEvents,
-      classOf[MemberEvent], classOf[UnreachableMember])
+      val msg = "Nodo Cluster Activado!!"
+
+      sender() ! ActivatedNode(msg)
+      goto(ActiveSt) using NoData
   }
-  override def postStop(): Unit = cluster.unsubscribe(self)
 
+  when(ActiveSt) {
+    case Event(ClientQuery(query), NoData) =>
+      val res = spark.sql(query)
+      if (res.count() != 0)
+        res.collect().foreach(t => sender ! ResultQuery(t.toString()))
+      else
+        sender() ! ResultQuery("La query: " + query.toUpperCase + " no devuelve ningún dato!! ")
+      stay() using NoData
+  }
 
-  def receive = {
-    case MemberUp(member) => log.info("Member is Up: {}", member.address)
-    case UnreachableMember(member) => log.info("Member detected as unreachable: {}", member)
-    case MemberRemoved(member, previousStatus) => log.info("Member is Removed: {} after {}", member.address, previousStatus)
-    case "hello" => println("Bienvenido nodo " + counter+1)
-                    sender ! "received"
-    case "exit" =>  println("Hasta luego Lucas!!")
-                    context.system.terminate()
-    case ClientQuery(query) => {
-                    val res = spark.sql(query)
-                    println("Num. filas = " + res.count())
-                    res.collect().foreach(t => {
-                      sender ! ResultQuery(t.toString())
-                    })
-    }
-    case msg => println ("Mensaje " + msg + " inesperado !!" )
-    case _: MemberEvent => // ignore
+  whenUnhandled {
+    case _ => goto(InactiveSt)
   }
 }

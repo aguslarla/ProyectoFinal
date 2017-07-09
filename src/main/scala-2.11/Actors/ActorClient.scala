@@ -1,6 +1,6 @@
 package Actors
 
-import Messages.{ClientQuery, ResultQuery}
+import Messages.{ActivatedNode, ClientQuery, Initializing, ResultQuery}
 import akka.actor.{Actor, ActorLogging, ActorPath}
 import akka.cluster.ClusterEvent._
 import akka.cluster.client.{ClusterClient, ClusterClientSettings}
@@ -17,10 +17,11 @@ class ActorClient extends Actor with ActorLogging{
 
   def receive = {
     case "hello" => println("Arranca nodo cliente !!")
+                    clientAkka ! ClusterClient.Send("/user/serviceA", Initializing(), localAffinity = true)
     case "exit" =>  println("Finaliza ejecución !!")
                     context.system.terminate()
-    case ClientQuery(query) => println("Query del cliente: " + query)
-                               clientAkka ! ClusterClient.Send("/user/serviceA", ClientQuery(query), localAffinity = true)
+    case ActivatedNode(msg) => println(msg)
+    case ClientQuery(query) => clientAkka ! ClusterClient.Send("/user/serviceA", ClientQuery(query), localAffinity = true)
     case ResultQuery(msg) => println(msg)
     case _: MemberEvent => // ignore
   }

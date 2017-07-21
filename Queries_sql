@@ -1,0 +1,8 @@
+// Queries over CSV file
+CREATE TABLE tb_airports USING com.databricks.spark.csv OPTIONS (path 'hdfs://localhost:9000/user/agustin/DataFederation/airports.csv', header = 'true')
+SELECT * FROM tb_airports LIMIT 500
+DROP TABLE IF EXISTS tb_airports
+// Queries over PARQUET file
+CREATE TABLE tb_airlines USING parquet OPTIONS (path 'hdfs://localhost:9000/user/agustin/DataFederation/airlines_parquet', header = 'true')
+SELECT * FROM tb_airlines LIMIT 500
+DROP TABLE IF EXISTS tb_airlines

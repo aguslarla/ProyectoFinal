@@ -1,82 +1,78 @@
 package Actors
 
 import Messages._
-import akka.actor.{Actor, ActorLogging, FSM}
+import akka.actor.{Actor, ActorLogging, ActorRef}
 import akka.cluster.Cluster
+import akka.cluster.ClusterEvent._
+import akka.cluster.pubsub.DistributedPubSubMediator.SendToAll
+import akka.cluster.pubsub.DistributedPubSub
 import com.typesafe.config.ConfigFactory
-import org.apache.spark.sql.SparkSession
+import org.apache.curator.framework.CuratorFramework
+import org.apache.zookeeper.CreateMode
 
 /**
   * Created by agustin on 1/06/17.
   */
 
-// Defining STATES of actor.
-sealed trait ActorState
-case object InactiveSt extends ActorState
-case object ActiveSt extends ActorState
-case object DisconnectedSt extends ActorState
-
-// Defining DATA between state transitions.
-sealed trait DataTrans
-case object NoData extends DataTrans
-
-
-class ActorCluster extends Actor with ActorLogging with FSM[ActorState, DataTrans] {
+class ActorCluster(actorRef: ActorRef, zKClient: CuratorFramework) extends Actor with ActorLogging{
 
   val cluster = Cluster(context.system)
 
-  var counter = 0
-
-  // Inicialize ActorState
-  startWith(InactiveSt, NoData)
-
-  val config = ConfigFactory.load()
-  val masterSpark = config.getString("sparkConfig.master-url")
-  val sparkDriverHost = config.getString("sparkConfig.driver-host")
-  val zKHost = config.getString("zkConfig.host")
-
-  // Creating SparkSession
-  val spark = SparkSession.builder()
-    .master(masterSpark)
-    .appName("SparkDataFederation")
-    .config("spark.cores.max", 2)
-    .config("spark.driver.host", sparkDriverHost)
-    .getOrCreate()
-
-  // Creating Zookeeper connection
-
-  // Reading datasets and creating temp table
-  //val df_parquet = spark.read.parquet("")
-  val df_csv = spark.read
-    .format("com.databricks.spark.csv")
-    .option("header", "true")
-    .option("mode", "DROPMALFORMED")
-    .load("airports.csv")
-
-  df_csv.createOrReplaceTempView("airports")
-  // Reviewing database to checking new table.
-  println("Tabla " + df_csv.sqlContext.tableNames()(0).toUpperCase + " creada!! ")
-
-  when(InactiveSt) {
-    case Event(Initializing(), NoData) =>
-
-      val msg = "Nodo Cluster Activado!!"
-
-      sender() ! ActivatedNode(msg)
-      goto(ActiveSt) using NoData
+  override def preStart(): Unit =  {
+    cluster.subscribe(self, classOf[MemberEvent])
   }
 
-  when(ActiveSt) {
-    case Event(ClientQuery(query), NoData) =>
-      val res = spark.sql(query)
-      if (res.count() != 0)
-        res.collect().foreach(t => sender ! ResultQuery(t.toString()))
-      else
-        sender() ! ResultQuery("La query: " + query.toUpperCase + " no devuelve ningún dato!! ")
-      stay() using NoData
-  }
+  override def postStop(): Unit = cluster.unsubscribe(self)
 
-  whenUnhandled {
-    case _ => goto(InactiveSt)
+  override def receive: Receive = {
+    case MemberUp(member) => {
+      val msg="Node activated!!"
+      log.info("Member is Up: {}", member.address)
+      println(Console.RED + "[CLUSTER: " + member.address + "] => " + msg)
+    }
+    case UnreachableMember(member) =>{
+      log.info("Member detected as unreachable: {}", member)
+      println(Console.RED + "[CLUSTER: " + member.address + "] => Node unreachable!!" )
+    }
+    case MemberRemoved(member, previousStatus) =>{
+      log.info("Member is Removed: {} after {}", member.address, previousStatus)
+      println(Console.RED + "[CLUSTER: " + member.address + "] => Node removed!!" )
+    }
+    case ClientQuery(query) => {
+      println("Llega Query: query")
+      // Obtain command "CREATE", "DROP", "SELECT", ...
+      val command_zk = query.split(" ")(0).toUpperCase
+      if (!command_zk.equals("SELECT")){
+        println("Entra poor aqui")
+        // Obtain table from query
+        var table_zk = ""
+        query.split(" ").foreach(t => {
+          if (t.contains("tb_"))
+            table_zk = t
+        })
+
+        // Save Metadata in ZooKeeper
+        val zkConfig = ConfigFactory.load("spark_zk.conf")
+        val zkMetadata = zkConfig.getString("zkConfig.path_meta")
+        val zkTablePath = zkMetadata+"/"+table_zk
+        val zkQueryPath = zkMetadata+"/"+table_zk+"/"+command_zk
+
+        if (zKClient.checkExists().forPath(zkTablePath) == null)
+          zKClient.create().creatingParentsIfNeeded().withMode(CreateMode.PERSISTENT).forPath(zkTablePath)
+
+        if (zKClient.checkExists().forPath(zkQueryPath) == null)
+          zKClient.create().creatingParentsIfNeeded().withMode(CreateMode.PERSISTENT).forPath(zkQueryPath)
+
+        zKClient.setData().forPath(zkQueryPath, query.getBytes())
+
+        val mediator = DistributedPubSub(context.system).mediator
+
+        mediator ! SendToAll("/user/serviceA", query, allButSelf = true)
+
+      }
+       println("Envia a executor")
+      actorRef forward QueryToExecutor(query)
+    }
+    case _: MemberEvent => // ignore
   }
 }

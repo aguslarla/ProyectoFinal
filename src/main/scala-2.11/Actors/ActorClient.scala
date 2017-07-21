@@ -1,6 +1,6 @@
 package Actors
 
-import Messages.{ActivatedNode, ClientQuery, Initializing, ResultQuery}
+import Messages._
 import akka.actor.{Actor, ActorLogging, ActorPath}
 import akka.cluster.ClusterEvent._
 import akka.cluster.client.{ClusterClient, ClusterClientSettings}
@@ -10,19 +10,26 @@ import akka.cluster.client.{ClusterClient, ClusterClientSettings}
   */
 class ActorClient extends Actor with ActorLogging{
 
-  val initialContacts = Set(ActorPath.fromString("akka.tcp://DataFederationSystem@127.0.0.1:2551/system/receptionist"))
+  val initialContacts = Set(ActorPath.fromString("akka.tcp://DataFederationSystem@192.168.1.3:2551/system/receptionist"),
+                            ActorPath.fromString("akka.tcp://DataFederationSystem@192.168.1.10:2551/system/receptionist"))
   val settings = ClusterClientSettings(context.system).withInitialContacts(initialContacts)
 
   val clientAkka = context.system.actorOf(ClusterClient.props(settings), "ClientAkka")
 
   def receive = {
-    case "hello" => println("Arranca nodo cliente !!")
-                    clientAkka ! ClusterClient.Send("/user/serviceA", Initializing(), localAffinity = true)
-    case "exit" =>  println("Finaliza ejecución !!")
-                    context.system.terminate()
-    case ActivatedNode(msg) => println(msg)
+    case "hello" => println(Console.BLUE + "[CLIENT] => Arranca nodo cliente!!")
+    case "exit" =>  println(Console.BLUE + "[CLIENT] => Finaliza ejecución!!")
     case ClientQuery(query) => clientAkka ! ClusterClient.Send("/user/serviceA", ClientQuery(query), localAffinity = true)
-    case ResultQuery(msg) => println(msg)
+    case ResultQuery(msg) =>  println(Console.BLUE + "[CLIENT] => " + msg)
+                              // Cuando encontremos el separador de row meter un salto de línea para representar los datos
+    case QueryVacia(msg) => {
+      if (msg.contains("CREATE"))
+        println(Console.BLUE + "[CLIENT] => CREATED TABLE!!")
+      if (msg.contains("DROP"))
+        println(Console.BLUE + "[CLIENT] => DROPPED TABLE!!")
+      else
+        println(Console.BLUE + "[CLIENT] => " + msg)
+    }
     case _: MemberEvent => // ignore
   }
 }
